@@ -17,17 +17,23 @@ struct run {
   struct run *next;
 };
 
+struct freelist_queue{
+	struct run *head;
+	struct run *tail;
+};
+
 struct {
   struct spinlock lock;
   int use_lock;
-  struct run *freelist;
+  //struct run *freelist;
+  struct freelist_queue freelistQueue;
 } kmem;
 
 // Initialization happens in two phases.
 // 1. main() calls kinit1() while still using entrypgdir to place just
 // the pages mapped by entrypgdir on free list.
 // 2. main() calls kinit2() with the rest of the physical pages
-// after installing a full page table that maps them on all cores.
+// after installing a full page tab	le that maps them on all cores.
 void
 kinit1(void *vstart, void *vend)
 {
@@ -70,8 +76,15 @@ kfree(char *v)
   if(kmem.use_lock)
     acquire(&kmem.lock);
   r = (struct run*)v;
-  r->next = kmem.freelist;
-  kmem.freelist = r;
+  if(kmem.freelistQueue.tail == 0){
+  	kmem.freelistQueue.tail = kmem.freelistQueue.head = r;
+  }
+  else{
+  	kmem.freelistQueue.tail->next = r;
+	kmem.freelistQueue.tail = r;
+  }
+  kmem.freelistQueue.tail->next = r;
+
   if(kmem.use_lock)
     release(&kmem.lock);
 }
@@ -86,9 +99,13 @@ kalloc(void)
 
   if(kmem.use_lock)
     acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
+  r = kmem.freelistQueue.head;
+  if(r){
+  	kmem.freelistQueue.head = r->next;
+  }
+  else{
+  	kmem.freelistQueue.tail = 0;
+  }
   if(kmem.use_lock)
     release(&kmem.lock);
   return (char*)r;
